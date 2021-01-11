@@ -12,8 +12,12 @@ local RoactRodux = require(Hoarcekat.Vendor.RoactRodux)
 
 local e = Roact.createElement
 
-local Preview = Roact.PureComponent:extend("Preview")
+local gui = Instance.new('ScreenGui')
 
+local Preview = Roact.PureComponent:extend("Preview")
+local sources = {}
+local addTos = {}
+local addTo, lineNum, restMsg
 function Preview:init()
 	self.previewRef = Roact.createRef()
 
@@ -33,8 +37,15 @@ function Preview:init()
 			return self.monkeyRequireCache[otherScript]
 		end
 
+		local src = otherScript.Source
+		if otherScript == addTo then
+			local lines = src:split('\n')
+			lines[lineNum] = 'warn"[HoarceKat] Failed displaying story due to error" warn"'..otherScript:GetFullName()..restMsg..'" '..lines[lineNum]
+			src = table.concat(lines, '\n')
+		end
+
 		-- loadstring is used to avoid cache while preserving `script` (which requiring a clone wouldn't do)
-		local result, parseError = loadstring(otherScript.Source)
+		local result, parseError = loadstring(src)
 		if result == nil then
 			error(("Could not parse %s: %s"):format(otherScript:GetFullName(), parseError))
 			return
@@ -56,6 +67,8 @@ function Preview:init()
 		self.monkeyRequireMaid:GiveTask(otherScript.Changed:connect(function()
 			self:refreshPreview()
 		end))
+
+		sources[otherScript] = otherScript.Source
 
 		return output
 	end
@@ -116,10 +129,125 @@ function Preview:refreshPreview()
 
 		local execOk, cleanup = xpcall(function()
 			return result(self.expand and self.display or self.previewRef:getValue())
-		end, debug.traceback)
+		end, function(msg)
+			local line = tonumber(msg:match('%b[]:(%d+)'))
+
+			-- local lines = selectedStory.Source:split('\n')
+			-- warn(msg)
+			local TestService = game:GetService('TestService')
+
+			local trace = debug.traceback()
+			local split = trace:split('\n')
+
+			local stack = {}
+			local stacks = {}
+
+			local merged = {}
+			local first = false
+			for i, l in ipairs(split) do
+				if i ~= 1 then
+					table.insert(merged, l)
+				end
+
+				local extra, num, func
+				if not first then
+					extra, num, func = l:match('(.+):('..line..')')
+
+					if num then
+						func = ''
+						first = true
+					end
+				else
+					extra, num, func = l:match('(.+):(%d+) (.+)')
+				end
+
+
+				if not num or not func then continue end
+				if l:find('Hoarcekat.Plugin.', nil, false) then
+					break
+				end
+
+				merged[#merged] = extra
+
+				table.insert(stacks, {line = num, func = func, data = table.concat(merged, '\n')})
+
+				merged = {}
+			end
+
+			table.remove(split, 1)
+			trace = table.concat(split, '\n')
+
+			local first = trace:find(':'..line)
+
+			local foundFile
+			for file, source in pairs(sources) do
+				if not foundFile and source:sub(1, first - 1) == trace:sub(1, first - 1) then
+					foundFile = file
+				end
+
+				for _, info in ipairs(stacks) do
+					-- print('MY DATA IS ', info.data, '\n\n')
+					-- print('THEIR DATA IS ', source:sub(1, #info.data), '\n\n\n\n\n\n')
+					if source:sub(1, #info.data) == info.data then
+						info.file = file
+						-- break
+					end
+				end
+			end
+
+			for _, info in ipairs(stacks) do
+				local file = info.file and info.file:GetFullName() or 'PATH'
+				table.insert(stack, '\t\tScript '..'\''..file..'\', Line '..info.line..(info.func ~= '' and ' - '..info.func or ''))
+			end
+
+			-- print(stacks)
+
+			addTo = foundFile
+			restMsg = msg:match('%b[](.+)')
+			lineNum = line
+
+			sources = {}
+
+			self.monkeyRequireCache = {}
+			self.monkeyGlobalTable = {}
+			self.monkeyRequireMaid:DoCleaning()
+
+			local go = loadstring(selectedStory.Source)
+
+			local fenv = setmetatable({
+				require = self.monkeyRequire,
+				script = selectedStory,
+				_G = self.monkeyGlobalTable,
+			}, {
+				__index = getfenv(),
+			})
+
+			setfenv(go, fenv)
+			pcall(function()
+				return go()(gui)
+			end)
+
+
+			TestService:Message('\n\tStack Begin\n'..table.concat(stack, '\n')..'\n\tStack End')
+
+			gui:ClearAllChildren()
+
+			sources = {}
+			addTos = {}
+			addTo, lineNum, restMsg = nil, nil, nil
+
+
+			-- local path = selectedStory:GetFullName()
+
+			-- -- TestService:Error(path..a:match('%b[](.+)'))
+			-- -- warn('- '..selectedStory.Name..':11')
+			-- TestService:Message('\nStack Begin\n'..debug.traceback(nil, 10)..'Stack End')
+
+			return ''
+		end)
 
 		if not execOk then
-			warn("Error executing story: " .. cleanup)
+			-- warn("Error executing story: " .. cleanup)
 			return
 		end
 

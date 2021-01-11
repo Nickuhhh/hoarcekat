@@ -6,7 +6,10 @@ local Roact = require(Hoarcekat.Vendor.Roact)
 
 local e = Roact.createElement
 
-local function TestFloatingButton()
+local function TestFloatingButton()return function()return function()
+	local t = {}
+	error('failed to be cool')
+
 	return e(FloatingButton, {
 		Activated = function()
 			print("activated!")
@@ -16,9 +19,12 @@ local function TestFloatingButton()
 		Size = UDim.new(0, 40),
 	})
 end
+end
+end
 
 return function(target)
-	local handle = Roact.mount(e(TestFloatingButton), target, "FloatingButton")
+	local d = TestFloatingButton()()
+	local handle = Roact.mount(e(d), target, "FloatingButton")
 
 	return function()
 		Roact.unmount(handle)

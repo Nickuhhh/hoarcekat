@@ -1,6 +1,8 @@
 return function(target)
 	local counter = 0
 
+	counter()
+
 	local instance = Instance.new("TextButton")
 	instance.AnchorPoint = Vector2.new(0.5, 0.5)
 	instance.Position = UDim2.fromScale(0.5, 0.5)
